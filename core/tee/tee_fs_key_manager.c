@@ -58,6 +58,7 @@ struct tee_fs_ssk {
 struct aad {
 	const uint8_t *encrypted_key;
 	const uint8_t *iv;
+	const uint8_t *filename;
 };
 
 struct km_header {
@@ -254,6 +255,12 @@ static TEE_Result do_auth_enc(TEE_OperationMode mode,
 	if (res != TEE_SUCCESS)
 		goto exit;
 
+	res = crypto_ops.authenc.update_aad(ctx, TEE_FS_KM_AUTH_ENC_ALG,
+			mode, (uint8_t *)hdr->aad.filename,
+			strlen((char *)hdr->aad.filename) + 1);
+	if (res != TEE_SUCCESS)
+		goto exit;
+
 	if (mode == TEE_MODE_ENCRYPT) {
 		res = crypto_ops.authenc.enc_final(ctx, TEE_FS_KM_AUTH_ENC_ALG,
 				data_in, in_size, data_out, out_size,
@@ -310,7 +317,8 @@ TEE_Result tee_fs_generate_fek(uint8_t *buf, int buf_size)
 TEE_Result tee_fs_encrypt_file(enum tee_fs_file_type file_type,
 		const uint8_t *data_in, size_t data_in_size,
 		uint8_t *data_out, size_t *data_out_size,
-		const uint8_t *encrypted_fek)
+		const uint8_t *encrypted_fek,
+		const uint8_t *filename)
 {
 	TEE_Result res = TEE_SUCCESS;
 	struct km_header hdr;
@@ -351,6 +359,7 @@ TEE_Result tee_fs_encrypt_file(enum tee_fs_file_type file_type,
 
 	hdr.aad.iv = iv;
 	hdr.aad.encrypted_key = encrypted_fek;
+	hdr.aad.filename = filename;
 	hdr.tag = tag;
 
 	res = do_auth_enc(TEE_MODE_ENCRYPT, &hdr,
@@ -366,6 +375,8 @@ TEE_Result tee_fs_encrypt_file(enum tee_fs_file_type file_type,
 
 		memcpy(data_out, iv, TEE_FS_KM_IV_LEN);
 		data_out += TEE_FS_KM_IV_LEN;
+		memcpy(data_out, filename, strlen((char *)filename) + 1);
+		data_out += TEE_FS_NAME_MAX;
 		memcpy(data_out, tag, TEE_FS_KM_MAX_TAG_LEN);
 
 		*data_out_size = header_size + cipher_size;
@@ -378,7 +389,8 @@ fail:
 TEE_Result tee_fs_decrypt_file(enum tee_fs_file_type file_type,
 		const uint8_t *data_in, size_t data_in_size,
 		uint8_t *plaintext, size_t *plaintext_size,
-		uint8_t *encrypted_fek)
+		uint8_t *encrypted_fek,
+		const uint8_t *filename)
 {
 	TEE_Result res = TEE_SUCCESS;
 	struct km_header km_hdr;
@@ -392,6 +404,7 @@ TEE_Result tee_fs_decrypt_file(enum tee_fs_file_type file_type,
 
 		km_hdr.aad.encrypted_key = hdr->encrypted_key;
 		km_hdr.aad.iv = hdr->common.iv;
+		km_hdr.aad.filename = hdr->common.filename;
 		km_hdr.tag = hdr->common.tag;
 
 		/* return encrypted FEK to tee_fs which is used for block
@@ -402,8 +415,12 @@ TEE_Result tee_fs_decrypt_file(enum tee_fs_file_type file_type,
 
 		km_hdr.aad.encrypted_key = encrypted_fek;
 		km_hdr.aad.iv = hdr->common.iv;
+		km_hdr.aad.filename = hdr->common.filename;
 		km_hdr.tag = hdr->common.tag;
 	}
+
+	if (memcmp(km_hdr.aad.filename, filename, strlen((char *)filename) + 1))
+		return TEE_ERROR_BAD_STATE;
 
 	memcpy(fek, km_hdr.aad.encrypted_key, TEE_FS_KM_FEK_SIZE);
 	res = fek_crypt(TEE_MODE_DECRYPT, fek, TEE_FS_KM_FEK_SIZE);

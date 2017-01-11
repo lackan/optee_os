@@ -93,6 +93,7 @@ struct tee_fs_fd {
 	uint32_t flags;
 	bool is_new_file;
 	int fd;
+	uint8_t filename[TEE_FS_NAME_MAX];
 };
 
 static inline int pos_to_block_num(int position)
@@ -211,7 +212,8 @@ static TEE_Result encrypt_and_write_file(struct tee_fs_fd *fdp,
 		return res;
 
 	res = tee_fs_encrypt_file(file_type, data_in, data_in_size,
-				  ciphertext, &ciphertext_size, encrypted_fek);
+				  ciphertext, &ciphertext_size,
+				  encrypted_fek, fdp->filename);
 	if (res != TEE_SUCCESS)
 		return res;
 
@@ -248,7 +250,8 @@ static TEE_Result read_and_decrypt_file(struct tee_fs_fd *fdp,
 	}
 
 	res = tee_fs_decrypt_file(file_type, ciphertext, bytes, data_out,
-				  data_out_size, encrypted_fek);
+				  data_out_size, encrypted_fek,
+				  fdp->filename);
 	if (res != TEE_SUCCESS)
 		return TEE_ERROR_CORRUPT_OBJECT;
 	return TEE_SUCCESS;
@@ -399,7 +402,8 @@ static TEE_Result read_block(struct tee_fs_fd *fdp, int bnum, uint8_t *data)
 	}
 
 	return tee_fs_decrypt_file(BLOCK_FILE, ct, bytes, data,
-				   &out_size, fdp->meta.encrypted_fek);
+				   &out_size, fdp->meta.encrypted_fek,
+				   fdp->filename);
 }
 
 static TEE_Result write_block(struct tee_fs_fd *fdp, size_t bnum, uint8_t *data,
@@ -469,6 +473,39 @@ exit:
 	return res;
 }
 
+static TEE_Result block_copy(struct tee_fs_fd *src_fdp,
+			struct tee_fs_fd *dst_fdp)
+{
+	TEE_Result res;
+	struct tee_fs_file_meta *src_meta = &src_fdp->meta;
+	struct tee_fs_file_meta *dst_meta = &dst_fdp->meta;
+	uint8_t *block;
+	int block_num = pos_to_block_num(src_meta->info.length);
+	int i;
+
+	block = malloc(BLOCK_SIZE);
+	if (!block)
+		return TEE_ERROR_OUT_OF_MEMORY;
+
+	dst_meta->info = src_meta->info;
+	for (i = 0; i <= block_num; i++) {
+		res = read_block(src_fdp, i, block);
+		if (res == TEE_ERROR_ITEM_NOT_FOUND)
+			memset(block, 0, BLOCK_SIZE);
+		else if (res != TEE_SUCCESS)
+			goto exit;
+
+		res = encrypt_and_write_file(dst_fdp, BLOCK_FILE,
+				     block_pos_raw(dst_meta, i, true), block,
+				     BLOCK_SIZE, dst_meta->encrypted_fek);
+		if (res != TEE_SUCCESS)
+			goto exit;
+	}
+exit:
+	free(block);
+	return res;
+}
+
 static TEE_Result open_internal(const char *file, bool create,
 				struct tee_file_handle **fh)
 {
@@ -487,6 +524,7 @@ static TEE_Result open_internal(const char *file, bool create,
 	if (!fdp)
 		return TEE_ERROR_OUT_OF_MEMORY;
 	fdp->fd = -1;
+	memcpy(fdp->filename, file, len);
 
 	mutex_lock(&ree_fs_mutex);
 
@@ -745,11 +783,58 @@ static TEE_Result ree_fs_rename(const char *old, const char *new,
 				bool overwrite)
 {
 	TEE_Result res;
+	struct tee_fs_fd *old_fdp = NULL;
+	struct tee_fs_fd *new_fdp = NULL;
+
+	if (!overwrite) {
+		res = open_internal(new, false,
+				(struct tee_file_handle **)&new_fdp);
+		if (res == TEE_SUCCESS) {
+			tee_fs_rpc_close(OPTEE_MSG_RPC_CMD_FS, new_fdp->fd);
+			free(new_fdp);
+			return TEE_ERROR_BAD_STATE;
+		}
+	}
+
+	res = open_internal(old, false, (struct tee_file_handle **)&old_fdp);
+	if (res != TEE_SUCCESS)
+		goto exit;
+
+	res = open_internal(new, true, (struct tee_file_handle **)&new_fdp);
+	if (res != TEE_SUCCESS)
+		goto exit;
 
 	mutex_lock(&ree_fs_mutex);
-	res = tee_fs_rpc_rename(OPTEE_MSG_RPC_CMD_FS, old, new, overwrite);
-	mutex_unlock(&ree_fs_mutex);
+	res = block_copy(old_fdp, new_fdp);
+	if (res != TEE_SUCCESS) {
+		mutex_unlock(&ree_fs_mutex);
+		goto exit;
+	}
+	new_fdp->pos = old_fdp->pos;
 
+	res = encrypt_and_write_file(new_fdp, META_FILE,
+			meta_pos_raw(new_fdp, true),
+			(void *)&new_fdp->meta.info,
+			sizeof(new_fdp->meta.info),
+			new_fdp->meta.encrypted_fek);
+	mutex_unlock(&ree_fs_mutex);
+exit:
+	mutex_lock(&ree_fs_mutex);
+	if (old_fdp) {
+		tee_fs_rpc_close(OPTEE_MSG_RPC_CMD_FS, old_fdp->fd);
+		free(old_fdp);
+		if (res == TEE_SUCCESS)
+			assert(tee_fs_rpc_remove(OPTEE_MSG_RPC_CMD_FS, old)
+				== TEE_SUCCESS);
+	}
+	if (new_fdp) {
+		tee_fs_rpc_close(OPTEE_MSG_RPC_CMD_FS, new_fdp->fd);
+		free(new_fdp);
+		if (res != TEE_SUCCESS)
+			assert(tee_fs_rpc_remove(OPTEE_MSG_RPC_CMD_FS, new)
+				== TEE_SUCCESS);
+	}
+	mutex_unlock(&ree_fs_mutex);
 	return res;
 }
 

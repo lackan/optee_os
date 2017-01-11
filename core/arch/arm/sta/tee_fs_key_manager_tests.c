@@ -139,7 +139,7 @@ static TEE_Result test_file_decrypt_with_invalid_content(void)
 	res = tee_fs_encrypt_file(META_FILE,
 			test_data, sizeof(test_data),
 			encrypt_data_out, &encrypt_data_out_size,
-			encrypted_fek);
+			encrypted_fek, NULL);
 	if (res != TEE_SUCCESS) {
 		EMSG("file encryption failed");
 		goto exit;
@@ -163,7 +163,7 @@ static TEE_Result test_file_decrypt_with_invalid_content(void)
 	res = tee_fs_decrypt_file(META_FILE,
 			encrypt_data_out, encrypt_data_out_size,
 			decrypt_data_out, &decrypt_data_out_size,
-			encrypted_fek);
+			encrypted_fek, NULL);
 	if (res == TEE_ERROR_MAC_INVALID) {
 		DMSG("case1: passed, return code=%x", res);
 	} else {
@@ -183,7 +183,7 @@ static TEE_Result test_file_decrypt_with_invalid_content(void)
 	res = tee_fs_decrypt_file(META_FILE,
 			encrypt_data_out, encrypt_data_out_size,
 			decrypt_data_out, &decrypt_data_out_size,
-			encrypted_fek);
+			encrypted_fek, NULL);
 	if (res == TEE_ERROR_MAC_INVALID) {
 		DMSG("case2: passed, return code=%x", res);
 	} else {
@@ -203,7 +203,7 @@ static TEE_Result test_file_decrypt_with_invalid_content(void)
 	res = tee_fs_decrypt_file(META_FILE,
 			encrypt_data_out, encrypt_data_out_size,
 			decrypt_data_out, &decrypt_data_out_size,
-			encrypted_fek);
+			encrypted_fek, NULL);
 	if (res == TEE_ERROR_MAC_INVALID) {
 		DMSG("case3: passed, return code=%x", res);
 	} else {
@@ -220,7 +220,7 @@ static TEE_Result test_file_decrypt_with_invalid_content(void)
 	res = tee_fs_decrypt_file(META_FILE,
 			encrypt_data_out, encrypt_data_out_size - 1,
 			decrypt_data_out, &decrypt_data_out_size,
-			encrypted_fek);
+			encrypted_fek, NULL);
 	if (res == TEE_ERROR_MAC_INVALID) {
 		DMSG("case4: passed, return code=%x", res);
 	} else {
@@ -237,7 +237,7 @@ static TEE_Result test_file_decrypt_with_invalid_content(void)
 	res = tee_fs_decrypt_file(META_FILE,
 			encrypt_data_out, encrypt_data_out_size,
 			decrypt_data_out, &decrypt_data_out_size,
-			encrypted_fek);
+			encrypted_fek, NULL);
 	if (res == TEE_ERROR_SHORT_BUFFER) {
 		DMSG("case5: passed, return code=%x", res);
 	} else {
@@ -254,7 +254,7 @@ static TEE_Result test_file_decrypt_with_invalid_content(void)
 	res = tee_fs_decrypt_file(META_FILE,
 			encrypt_data_out, encrypt_data_out_size,
 			decrypt_data_out, &decrypt_data_out_size,
-			encrypted_fek);
+			encrypted_fek, NULL);
 	if (res != TEE_SUCCESS) {
 		EMSG("failed to decrypted data, return code=%x", res);
 		goto exit;
@@ -310,7 +310,7 @@ static TEE_Result test_file_decrypt_success(void)
 	res = tee_fs_encrypt_file(META_FILE,
 			test_data, sizeof(test_data),
 			encrypt_data_out, &encrypt_data_out_size,
-			encrypted_fek);
+			encrypted_fek, NULL);
 	if (res != TEE_SUCCESS) {
 		EMSG("file encryption failed");
 		goto exit;
@@ -329,7 +329,7 @@ static TEE_Result test_file_decrypt_success(void)
 	res = tee_fs_decrypt_file(META_FILE,
 			encrypt_data_out, encrypt_data_out_size,
 			decrypt_data_out, &decrypt_data_out_size,
-			encrypted_fek);
+			encrypted_fek, NULL);
 	if (res != TEE_SUCCESS)
 		goto exit;
 

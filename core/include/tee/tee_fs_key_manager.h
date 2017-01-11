@@ -48,6 +48,8 @@
 
 #define NUM_BLOCKS_PER_FILE	1024
 
+#define TEE_FS_NAME_MAX 350
+
 enum tee_fs_file_type {
 	META_FILE,
 	BLOCK_FILE
@@ -66,6 +68,7 @@ struct tee_fs_file_meta {
 
 struct common_header {
 	uint8_t iv[TEE_FS_KM_IV_LEN];
+	uint8_t filename[TEE_FS_NAME_MAX];
 	uint8_t tag[TEE_FS_KM_MAX_TAG_LEN];
 };
 
@@ -83,11 +86,13 @@ TEE_Result tee_fs_generate_fek(uint8_t *encrypted_fek, int fek_size);
 TEE_Result tee_fs_encrypt_file(enum tee_fs_file_type file_type,
 		const uint8_t *plaintext, size_t plaintext_size,
 		uint8_t *ciphertext, size_t *ciphertext_size,
-		const uint8_t *encrypted_fek);
+		const uint8_t *encrypted_fek,
+		const uint8_t *filename);
 TEE_Result tee_fs_decrypt_file(enum tee_fs_file_type file_type,
 		const uint8_t *data_in, size_t data_in_size,
 		uint8_t *plaintext, size_t *plaintext_size,
-		uint8_t *encrypted_fek);
+		uint8_t *encrypted_fek,
+		const uint8_t *filename);
 TEE_Result tee_fs_crypt_block(uint8_t *out, const uint8_t *in, size_t size,
 			      uint16_t blk_idx, const uint8_t *encrypted_fek,
 			      TEE_OperationMode mode);
